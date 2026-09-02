@@ -1,0 +1,176 @@
+#include <Servo.h>
+
+Servo servo;
+
+// ================= CONFIGURAÇÕES =================
+
+// Pinos do sensor ultrassônico
+const byte trigPin = 5;
+const byte echoPin = 6;
+
+// Pinos do servo e LED
+const byte servoPin = 7;
+const byte ledPin = 10;
+
+// Posições do servo — ajuste aqui
+const int posicaoInicial = 95;   // Tampa fechada
+const int posicaoFinal = 0;    // Tampa aberta
+
+// Distância máxima para acionar, em centímetros
+const int distanciaAcionamento = 50;
+
+// Tempo que a tampa permanece aberta
+const unsigned long tempoAberto = 3000;
+
+// Velocidade do movimento
+// Quanto maior o valor, mais lento será o servo
+const int velocidadeServo = 5;
+
+// Intervalo entre medições
+const int intervaloMedicao = 60;
+
+// ================================================
+
+long medirDistancia() {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+
+  digitalWrite(trigPin, LOW);
+
+  // Aguarda o eco por no máximo 30 mil microssegundos
+  unsigned long duracao = pulseIn(echoPin, HIGH, 30000);
+
+  // Sem retorno do sensor
+  if (duracao == 0) {
+    return 999;
+  }
+
+  // Conversão para centímetros
+  return duracao / 58;
+}
+
+long calcularDistanciaMedia() {
+  long soma = 0;
+  int leiturasValidas = 0;
+
+  for (int i = 0; i < 3; i++) {
+    long leitura = medirDistancia();
+
+    if (leitura > 0 && leitura < 400) {
+      soma += leitura;
+      leiturasValidas++;
+    }
+
+    delay(intervaloMedicao);
+  }
+
+  if (leiturasValidas == 0) {
+    return 999;
+  }
+
+  return soma / leiturasValidas;
+}
+
+void moverServoSuavemente(int inicio, int destino) {
+  if (inicio < destino) {
+    for (int posicao = inicio; posicao <= destino; posicao++) {
+      servo.write(posicao);
+      delay(velocidadeServo);
+    }
+  } else {
+    for (int posicao = inicio; posicao >= destino; posicao--) {
+      servo.write(posicao);
+      delay(velocidadeServo);
+    }
+  }
+}
+
+void abrirTampa() {
+  digitalWrite(ledPin, HIGH);
+
+  servo.attach(servoPin);
+  delay(100);
+
+  // Abre a tampa
+  moverServoSuavemente(posicaoInicial, posicaoFinal);
+
+  // Mantém aberta
+  delay(tempoAberto);
+
+  // Fecha a tampa
+  moverServoSuavemente(posicaoFinal, posicaoInicial);
+
+  delay(300);
+  servo.detach();
+
+  digitalWrite(ledPin, LOW);
+}
+
+void aguardarObjetoSair() {
+  unsigned long inicioEspera = millis();
+
+  while (true) {
+    long distanciaAtual = medirDistancia();
+
+    // Libera quando o objeto sair da área
+    if (distanciaAtual >= distanciaAcionamento) {
+      break;
+    }
+
+    // Segurança: sai após 10 segundos
+    if (millis() - inicioEspera >= 10000) {
+      break;
+    }
+
+    delay(200);
+  }
+}
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(ledPin, OUTPUT);
+
+  digitalWrite(trigPin, LOW);
+  digitalWrite(ledPin, LOW);
+
+  // Coloca o servo na posição fechada
+  servo.attach(servoPin);
+  delay(100);
+
+  servo.write(posicaoInicial);
+  delay(1000);
+
+  servo.detach();
+
+  Serial.println("Sistema iniciado.");
+}
+
+void loop() {
+  long distancia = calcularDistanciaMedia();
+
+  Serial.print("Distancia: ");
+
+  if (distancia == 999) {
+    Serial.println("sem leitura");
+  } else {
+    Serial.print(distancia);
+    Serial.println(" cm");
+  }
+
+  if (distancia > 0 && distancia < distanciaAcionamento) {
+    Serial.println("Objeto detectado. Abrindo tampa...");
+
+    abrirTampa();
+    aguardarObjetoSair();
+
+    Serial.println("Sistema liberado para nova deteccao.");
+  }
+
+  delay(100);
+}
